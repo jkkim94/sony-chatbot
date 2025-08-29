@@ -458,37 +458,11 @@ export class ModelManager {
       
         try {
           const materialSettings = await window.materialManager.loadPresetForModel(modelName);
+          console.log(`✅ [ModelManager] ${modelName} JSON 개별 메터리얼 설정 로드 완료`);
           
-          // 메터리얼 설정을 적용하기 전에 모델을 먼저 설정
-          if (modelData && modelData.model) {
-            window.materialManager.setCurrentModel(modelData.model);
-            console.log(`✅ [ModelManager] MaterialManager에 모델 설정 완료: ${modelName}`);
-          }
+          // 메터리얼 설정은 모델이 로드된 후에 적용 (아래에서 처리)
+          this.pendingMaterialSettings = materialSettings;
           
-          window.materialManager.applySettings(materialSettings);
-          console.log(`✅ [ModelManager] ${modelName} JSON 개별 메터리얼 설정 완료`);
-
-          if (typeof window !== 'undefined' && window.dispatchEvent) {
-            let individual = {};
-            try {
-              individual = materialSettings.individualMaterial || {};
-              console.log(`🎨 [ModelManager] 모델 스위치 ${modelName} 개별 메터리얼 설정:`, individual);
-              localStorage.setItem(`individualMaterial_${modelName}`, JSON.stringify(individual));
-              console.log(`💾 [ModelManager] 모델 스위치 ${modelName} 개별 메터리얼 설정 localStorage 저장 완료`);
-            } catch (e) {
-              console.error(`❌ [ModelManager] 모델 스위치 ${modelName} localStorage 저장 실패:`, e);
-            }
-            const event = new CustomEvent('materialSettingsUpdated', {
-              detail: {
-                settings: materialSettings,
-                individualMaterial: individual,
-                source: 'json',
-                modelName: modelName
-              }
-            });
-            window.dispatchEvent(event);
-            console.log(`🔄 [ModelManager] 모델 스위치 메터리얼 UI 동기화 이벤트 발생: ${modelName}`);
-          }
         } catch (error) {
           console.error(`❌ [ModelManager] ${modelName} JSON 개별 메터리얼 설정 실패:`, error);
         }
@@ -512,6 +486,46 @@ export class ModelManager {
       sceneRef.current.add(modelData.model);
       modelData.model.visible = true;
       console.log('✅ [ModelManager] 새 모델 씬에 추가 완료');
+      
+      // 🎯 모델 로드 완료 후 메터리얼 설정 적용
+      if (window.materialManager && this.pendingMaterialSettings) {
+        try {
+          // MaterialManager에 모델 설정
+          window.materialManager.setCurrentModel(modelData.model);
+          console.log(`✅ [ModelManager] MaterialManager에 모델 설정 완료: ${modelName}`);
+          
+          // 메터리얼 설정 적용
+          window.materialManager.applySettings(this.pendingMaterialSettings);
+          console.log(`✅ [ModelManager] ${modelName} JSON 개별 메터리얼 설정 완료`);
+          
+          if (typeof window !== 'undefined' && window.dispatchEvent) {
+            let individual = {};
+            try {
+              individual = this.pendingMaterialSettings.individualMaterial || {};
+              console.log(`🎨 [ModelManager] 모델 스위치 ${modelName} 개별 메터리얼 설정:`, individual);
+              localStorage.setItem(`individualMaterial_${modelName}`, JSON.stringify(individual));
+              console.log(`💾 [ModelManager] 모델 스위치 ${modelName} 개별 메터리얼 설정 localStorage 저장 완료`);
+            } catch (e) {
+              console.error(`❌ [ModelManager] 모델 스위치 ${modelName} localStorage 저장 실패:`, e);
+            }
+            const event = new CustomEvent('materialSettingsUpdated', {
+              detail: {
+                settings: this.pendingMaterialSettings,
+                individualMaterial: individual,
+                source: 'json',
+                modelName: modelName
+              }
+            });
+            window.dispatchEvent(event);
+            console.log(`🔄 [ModelManager] 모델 스위치 메터리얼 UI 동기화 이벤트 발생: ${modelName}`);
+          }
+          
+          // pendingMaterialSettings 정리
+          this.pendingMaterialSettings = null;
+        } catch (error) {
+          console.error(`❌ [ModelManager] ${modelName} 메터리얼 설정 적용 실패:`, error);
+        }
+      }
       
       // 2단계: 스켈레톤 헬퍼 추가
       if (modelData.skeletonHelper) {
