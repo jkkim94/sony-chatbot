@@ -69,11 +69,11 @@ export const createAudioAnalyzer = (audioContext, audioElement) => {
           const ultraHighFreq = dataArray.slice(400, 800).reduce((a, b) => a + b) / 400;
           
           return {
-            low: Math.min(lowFreq / 128, 1),      // 모음 (아, 오, 우)
-            mid: Math.min(midFreq / 128, 1),      // 자음 (에, 이)
-            high: Math.min(highFreq / 128, 1),    // 치찰음 (스, 즈)
-            ultraHigh: Math.min(ultraHighFreq / 128, 1), // 강한 치찰음 (시, 치)
-            overall: Math.min((lowFreq + midFreq + highFreq + ultraHighFreq) / (128 * 4), 1)
+            low: Math.min(lowFreq / 64, 1),       // 모음 (아, 오, 우) - 더 민감하게
+            mid: Math.min(midFreq / 64, 1),       // 자음 (에, 이) - 더 민감하게
+            high: Math.min(highFreq / 64, 1),     // 치찰음 (스, 즈) - 더 민감하게
+            ultraHigh: Math.min(ultraHighFreq / 64, 1), // 강한 치찰음 (시, 치) - 더 민감하게
+            overall: Math.min((lowFreq + midFreq + highFreq + ultraHighFreq) / (64 * 4), 1)
           };
         } catch (error) {
           console.warn('⚠️ [AudioAnalyzer] getFrequencyAnalysis 오류:', error);
@@ -104,9 +104,9 @@ export const createAudioAnalyzer = (audioContext, audioElement) => {
             }
           }
           
-          // 에너지 정규화 (더 민감하게)
-          const energy = Math.min(totalEnergy / bufferLength, 1);
-          const energyVariance = Math.min(weightedEnergy / bufferLength, 1);
+          // 에너지 정규화 (더 민감하게 - 128 대신 64 사용)
+          const energy = Math.min(totalEnergy / (bufferLength * 0.5), 1);
+          const energyVariance = Math.min(weightedEnergy / (bufferLength * 0.5), 1);
           
           // 스펙트럼 중심 주파수
           spectralCentroid = totalEnergy > 0 ? spectralCentroid / totalEnergy : 0;

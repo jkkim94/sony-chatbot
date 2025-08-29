@@ -18,7 +18,14 @@ export class AudioManager {
     this.lastViseme = null; // 마지막 viseme 추적
     this.visemeChangeCount = 0; // viseme 변화 횟수 추적
     this.lastLogTime = 0; // 마지막 로그 시간
-    this.logThrottleMs = 1000; // 로그 스로틀링 (1초)
+    this.logThrottleMs = 300; // 로그 스로틀링 (0.3초로 줄임)
+    
+    // viseme 지속 시스템
+    this.currentViseme = 'sil'; // 현재 유지 중인 viseme
+    this.visemeStartTime = 0; // viseme 시작 시간
+    this.visemeMinDuration = 300; // viseme 최소 지속 시간 (ms)
+    this.visemeStabilityThreshold = 0.6; // viseme 안정성 임계값
+    this.visemeHistory = []; // viseme 변화 히스토리
   }
 
   // 디버그 모드 설정
@@ -39,6 +46,54 @@ export class AudioManager {
     return false;
   }
 
+  // viseme 지속 시간 확인
+  _shouldChangeViseme(newViseme) {
+    const now = Date.now();
+    const elapsed = now - this.visemeStartTime;
+    
+    // 최소 지속 시간이 지나지 않았으면 변경하지 않음
+    if (elapsed < this.visemeMinDuration) {
+      return false;
+    }
+    
+    // 같은 viseme이면 변경하지 않음
+    if (newViseme === this.currentViseme) {
+      return false;
+    }
+    
+    // 무음(sil)에서 다른 viseme으로의 전환은 즉시 허용
+    if (this.currentViseme === 'sil' && newViseme !== 'sil') {
+      return true;
+    }
+    
+    // 다른 viseme에서 무음으로의 전환은 지연
+    if (newViseme === 'sil' && this.currentViseme !== 'sil') {
+      return elapsed > this.visemeMinDuration * 2; // 2배 더 오래 기다림
+    }
+    
+    // 일반적인 viseme 전환
+    return true;
+  }
+
+  // viseme 안정성 계산
+  _calculateVisemeStability(newViseme, energy, low, mid, high) {
+    let stability = 0;
+    
+    // 에너지 기반 안정성
+    if (energy > 0.3) stability += 0.3;
+    else if (energy > 0.1) stability += 0.2;
+    
+    // 주파수 기반 안정성
+    if (newViseme === 'aa' && low > 0.4) stability += 0.4;
+    else if (newViseme === 'O' && low > 0.3) stability += 0.4;
+    else if (newViseme === 'E' && mid > 0.3) stability += 0.4;
+    else if (newViseme === 'I' && mid > 0.3) stability += 0.4;
+    else if (newViseme === 'U' && low > 0.3) stability += 0.4;
+    else if (newViseme === 'SS' && high > 0.25) stability += 0.4;
+    
+    return Math.min(stability, 1.0);
+  }
+
   // 오디오 분석 초기화
   initAudioAnalysis() {
     if (!this.audioContext) {
@@ -54,9 +109,18 @@ export class AudioManager {
 
   // 실시간 오디오 분석기 설정
   setAudioAnalyzer(audioAnalyzer) {
-    this.audioAnalyzer = audioAnalyzer;
-    if (this.debugMode) {
-      console.log('🔊 [AudioManager] 실시간 오디오 분석기 설정됨');
+    if (audioAnalyzer === null) {
+      // AudioAnalyzer 연결 해제
+      this.audioAnalyzer = null;
+      if (this.debugMode) {
+        console.log('🔊 [AudioManager] AudioAnalyzer 연결 해제됨');
+      }
+    } else {
+      // 새로운 AudioAnalyzer 설정
+      this.audioAnalyzer = audioAnalyzer;
+      if (this.debugMode) {
+        console.log('🔊 [AudioManager] 실시간 오디오 분석기 설정됨');
+      }
     }
   }
 
@@ -142,43 +206,65 @@ export class AudioManager {
       });
     }
 
-    // 한국어 발음에 맞는 viseme 결정 (더 민감하게)
+    // 한국어 모음별 정밀한 주파수 분석
     if (energy < 0.05) {
       // 무음 상태
       viseme = 'sil';
-    } else if (low > 0.2 && low > mid && low > high) {
-      // 저주파 강함 - 모음 (아, 오, 우)
-      if (low > 0.5) {
-        viseme = 'aa';  // 아 소리 (가장 큰 입)
-      } else if (low > 0.3) {
-        viseme = 'O';   // 오 소리
-      } else {
-        viseme = 'E';   // 에 소리
-      }
-    } else if (mid > 0.2 && mid > low && mid > high) {
-      // 중주파 강함 - 자음 (에, 이)
-      if (mid > 0.4) {
-        viseme = 'E';   // 에 소리
-      } else {
-        viseme = 'SS';  // 스, 즈 소리
-      }
-    } else if (high > 0.2 && high > low && high > mid) {
-      // 고주파 강함 - 치찰음 (스, 시, 치)
-      viseme = 'SS';
-    } else if (energy > 0.15) {
-      // 에너지 기반으로 결정 (더 낮은 임계값)
-      if (energy > 0.6) {
-        viseme = 'aa';  // 아 소리
-      } else if (energy > 0.4) {
-        viseme = 'O';   // 오 소리
-      } else if (energy > 0.25) {
-        viseme = 'E';   // 에 소리
-      } else {
-        viseme = 'SS';  // 스 소리
-      }
     } else {
-      // 낮은 에너지 - 무음
-      viseme = 'sil';
+      // 모음 분류를 위한 정밀한 주파수 분석
+      const lowRatio = low / (low + mid + high + 0.001); // 0으로 나누기 방지
+      const midRatio = mid / (low + mid + high + 0.001);
+      const highRatio = high / (low + mid + high + 0.001);
+      
+      // 스펙트럼 중심 주파수를 이용한 모음 구분
+      if (spectralCentroid && spectralCentroid < 0.2) {
+        // 매우 낮은 주파수 - 우(U) 소리
+        if (low > 0.3 && lowRatio > 0.6) {
+          viseme = 'U';  // 우 소리
+        } else {
+          viseme = 'O';  // 오 소리
+        }
+      } else if (spectralCentroid && spectralCentroid < 0.4) {
+        // 낮은 주파수 - 오(O), 에(E) 소리
+        if (low > 0.25 && lowRatio > 0.5) {
+          viseme = 'O';  // 오 소리
+        } else {
+          viseme = 'E';  // 에 소리
+        }
+      } else if (spectralCentroid && spectralCentroid < 0.6) {
+        // 중간 주파수 - 아(aa), 에(E) 소리
+        if (low > 0.3 && lowRatio > 0.4) {
+          viseme = 'aa'; // 아 소리
+        } else {
+          viseme = 'E';  // 에 소리
+        }
+      } else if (spectralCentroid && spectralCentroid < 0.8) {
+        // 높은 주파수 - 이(I) 소리
+        if (mid > 0.25 && midRatio > 0.4) {
+          viseme = 'I';  // 이 소리
+        } else {
+          viseme = 'E';  // 에 소리
+        }
+      } else {
+        // 매우 높은 주파수 - 치찰음
+        if (high > 0.2 && highRatio > 0.4) {
+          viseme = 'SS'; // 스, 시, 치 소리
+        } else {
+          viseme = 'E';  // 에 소리 (기본값)
+        }
+      }
+      
+      // 에너지 기반 보정 (더 정확한 분류)
+      if (energy > 0.6 && low > 0.4) {
+        // 높은 에너지 + 저주파 = 아(aa) 소리
+        viseme = 'aa';
+      } else if (energy > 0.5 && mid > 0.3) {
+        // 중간 에너지 + 중주파 = 이(I) 소리
+        viseme = 'I';
+      } else if (energy > 0.4 && high > 0.25) {
+        // 중간 에너지 + 고주파 = 치찰음
+        viseme = 'SS';
+      }
     }
 
     // 한국어 특성에 맞는 보정
@@ -191,43 +277,77 @@ export class AudioManager {
       }
     }
 
-    // viseme 변화 감지 및 로깅
-    const visemeChanged = this.lastViseme !== viseme;
-    if (visemeChanged) {
-      this.visemeChangeCount++;
-      this.lastViseme = viseme;
-      
+    // viseme 지속 시스템 적용
+    const now = Date.now();
+    const shouldChange = this._shouldChangeViseme(viseme);
+    const stability = this._calculateVisemeStability(viseme, energy, low, mid, high);
+    
+    let finalViseme = this.currentViseme; // 기본적으로 현재 viseme 유지
+    
+    if (shouldChange) {
+      // viseme 변경 조건 충족
+      if (stability > this.visemeStabilityThreshold) {
+        // 안정성이 높으면 viseme 변경
+        finalViseme = viseme;
+        this.currentViseme = viseme;
+        this.visemeStartTime = now;
+        
+        // viseme 변화 감지 및 로깅
+        const visemeChanged = this.lastViseme !== viseme;
+        if (visemeChanged) {
+          this.visemeChangeCount++;
+          this.lastViseme = viseme;
+          
+          if (this.debugMode && this._shouldLog()) {
+            console.log(`🔊 [AudioManager] Viseme 변화 #${this.visemeChangeCount}: ${this.lastViseme} → ${viseme}`);
+            console.log(`🔊 [AudioManager] 분석 결과:`, {
+              energy: energy?.toFixed(3) || 'N/A',
+              lowFreq: low?.toFixed(3) || 'N/A',
+              midFreq: mid?.toFixed(3) || 'N/A',
+              highFreq: high?.toFixed(3) || 'N/A',
+              spectralCentroid: spectralCentroid?.toFixed(3) || 'N/A',
+              viseme,
+              finalViseme,
+              stability: stability.toFixed(3),
+              elapsed: (now - this.visemeStartTime).toFixed(0),
+              visemeReason: this._getVisemeReason(viseme, low, mid, high, energy)
+            });
+          }
+        }
+      } else {
+        // 안정성이 낮으면 현재 viseme 유지
+        if (this.debugMode && this._shouldLog()) {
+          console.log(`🔊 [AudioManager] Viseme 안정성 부족: ${viseme} (안정성: ${stability.toFixed(3)}) - ${this.currentViseme} 유지`);
+        }
+      }
+    } else {
+      // viseme 변경 조건 미충족 - 현재 viseme 유지
       if (this.debugMode && this._shouldLog()) {
-        console.log(`🔊 [AudioManager] Viseme 변화 #${this.visemeChangeCount}: ${this.lastViseme} → ${viseme}`);
-        console.log(`🔊 [AudioManager] 분석 결과:`, {
-          energy: energy?.toFixed(3) || 'N/A',
-          lowFreq: low?.toFixed(3) || 'N/A',
-          midFreq: mid?.toFixed(3) || 'N/A',
-          highFreq: high?.toFixed(3) || 'N/A',
-          spectralCentroid: spectralCentroid?.toFixed(3) || 'N/A',
-          viseme,
-          visemeReason: this._getVisemeReason(viseme, low, mid, high, energy)
-        });
+        console.log(`🔊 [AudioManager] Viseme 지속 중: ${this.currentViseme} (경과: ${(now - this.visemeStartTime).toFixed(0)}ms)`);
       }
     }
 
-    return { viseme, intensity: intensity };
+    return { viseme: finalViseme, intensity: intensity };
   }
 
-  // viseme 결정 이유 설명 (한국어 발음에 맞게)
+  // viseme 결정 이유 설명 (한국어 모음별 정밀 분석)
   _getVisemeReason(viseme, low, mid, high, energy) {
     if (energy < 0.05) {
       return `무음 상태 (${energy.toFixed(3)})`;
-    } else if (low > 0.2 && low > mid && low > high) {
-      return `저주파 강함 (${low.toFixed(3)}) - 모음 (아, 오, 우)`;
-    } else if (mid > 0.2 && mid > low && mid > high) {
-      return `중주파 강함 (${mid.toFixed(3)}) - 자음 (에, 이)`;
-    } else if (high > 0.2 && high > low && high > mid) {
-      return `고주파 강함 (${high.toFixed(3)}) - 치찰음 (스, 시, 치)`;
-    } else if (energy > 0.15) {
-      return `에너지 기반 (${energy.toFixed(3)}) - 스펙트럼 분석`;
+    } else if (viseme === 'U') {
+      return `우(U) 소리 - 매우 낮은 주파수 특성 (${low.toFixed(3)})`;
+    } else if (viseme === 'O') {
+      return `오(O) 소리 - 낮은 주파수 특성 (${low.toFixed(3)})`;
+    } else if (viseme === 'aa') {
+      return `아(aa) 소리 - 중간 주파수 특성 (${low.toFixed(3)})`;
+    } else if (viseme === 'E') {
+      return `에(E) 소리 - 중간 주파수 특성 (${mid.toFixed(3)})`;
+    } else if (viseme === 'I') {
+      return `이(I) 소리 - 높은 주파수 특성 (${mid.toFixed(3)})`;
+    } else if (viseme === 'SS') {
+      return `치찰음(SS) - 고주파 특성 (${high.toFixed(3)})`;
     } else {
-      return `낮은 에너지 (${energy.toFixed(3)}) - 무음`;
+      return `에너지 기반 (${energy.toFixed(3)}) - 스펙트럼 분석`;
     }
   }
 
@@ -239,7 +359,12 @@ export class AudioManager {
       visemeChangeCount: this.visemeChangeCount,
       lastLogTime: this.lastLogTime,
       audioAnalyzer: this.audioAnalyzer ? '연결됨' : '미연결',
-      audioContext: this.audioContext ? '활성화' : '비활성화'
+      audioContext: this.audioContext ? '활성화' : '비활성화',
+      // viseme 지속 시스템 상태
+      currentViseme: this.currentViseme,
+      visemeStartTime: this.visemeStartTime,
+      visemeMinDuration: this.visemeMinDuration,
+      visemeStabilityThreshold: this.visemeStabilityThreshold
     };
   }
 

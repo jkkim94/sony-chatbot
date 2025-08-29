@@ -442,6 +442,12 @@ const TalkingHeadRefactored = forwardRef(({
           hasDataAudioAnalysis: audioElement.hasAttribute('data-audio-analysis')
         });
         
+        // 기존 AudioAnalyzer가 있다면 정리
+        if (audioManagerRef.current.audioAnalyzer) {
+          console.log('🔄 [AudioAnalyzer] 기존 AudioAnalyzer 정리 중...');
+          audioManagerRef.current.setAudioAnalyzer(null);
+        }
+        
         const audioContext = new (window.AudioContext || window.webkitAudioContext)();
         const { createAudioAnalyzer } = await import('../utils/audioAnalysis');
         const audioAnalyzer = createAudioAnalyzer(audioContext, audioElement);
@@ -490,22 +496,18 @@ const TalkingHeadRefactored = forwardRef(({
               // audio[data-audio-analysis] 요소가 추가되었는지 확인
               if (node.matches && node.matches('audio[data-audio-analysis]')) {
                 console.log('🎵 [AudioAnalyzer] 새로운 오디오 요소 감지됨:', node);
-                // 즉시 AudioAnalyzer 연결 시도
+                // 즉시 AudioAnalyzer 연결 시도 (더 빠르게)
                 setTimeout(() => {
-                  if (audioManagerRef.current && !audioManagerRef.current.audioAnalyzer) {
-                    setupAudioAnalyzer();
-                  }
-                }, 100);
+                  setupAudioAnalyzer();
+                }, 50);
               }
               // 자식 요소들도 확인
               const audioElements = node.querySelectorAll && node.querySelectorAll('audio[data-audio-analysis]');
               if (audioElements && audioElements.length > 0) {
                 console.log('🎵 [AudioAnalyzer] 자식 요소에서 오디오 요소 감지됨:', audioElements);
                 setTimeout(() => {
-                  if (audioManagerRef.current && !audioManagerRef.current.audioAnalyzer) {
-                    setupAudioAnalyzer();
-                  }
-                }, 100);
+                  setupAudioAnalyzer();
+                }, 50);
               }
             }
           });
@@ -546,6 +548,12 @@ const TalkingHeadRefactored = forwardRef(({
         
         if (audioElement && audioManagerRef.current) {
           console.log('🔄 [AudioAnalyzer] 재연결 시도 - 오디오 요소:', audioElement);
+          
+          // 기존 AudioAnalyzer가 있다면 정리
+          if (audioManagerRef.current.audioAnalyzer) {
+            console.log('🔄 [AudioAnalyzer] 기존 AudioAnalyzer 정리 중...');
+            audioManagerRef.current.setAudioAnalyzer(null);
+          }
           
           const audioContext = new (window.AudioContext || window.webkitAudioContext)();
           const { createAudioAnalyzer } = await import('../utils/audioAnalysis');
@@ -615,6 +623,11 @@ const TalkingHeadRefactored = forwardRef(({
   // 상태
   const [isModelLoaded, setIsModelLoaded] = useState(false);
   const [isFirstModelLoad, setIsFirstModelLoad] = useState(true);
+  
+  // 블렌드셰이프 부드러운 전환을 위한 상태
+  const blendshapeSmoothingRef = useRef(new Map()); // 각 블렌드셰이프별 스무딩 상태
+  const targetValuesRef = useRef(new Map()); // 각 블렌드셰이프별 목표 값
+  const currentValuesRef = useRef(new Map()); // 각 블렌드셰이프별 현재 값
 
 
   // ========================================
@@ -1395,6 +1408,26 @@ const TalkingHeadRefactored = forwardRef(({
     return isEyeTracking;
   };
 
+  // 부드러운 전환을 위한 보간 함수 (더 부드럽게)
+  const smoothBlendshapeValue = (blendshapeName, targetValue, smoothingFactor = 0.08) => {
+    const currentValue = currentValuesRef.current.get(blendshapeName) || 0;
+    
+    // 목표 값과 현재 값의 차이가 너무 작으면 스무딩 적용하지 않음
+    const difference = Math.abs(targetValue - currentValue);
+    if (difference < 0.01) {
+      return targetValue;
+    }
+    
+    // 부드러운 보간 적용
+    const smoothedValue = currentValue + (targetValue - currentValue) * smoothingFactor;
+    
+    // 현재 값과 목표 값 업데이트
+    currentValuesRef.current.set(blendshapeName, smoothedValue);
+    targetValuesRef.current.set(blendshapeName, targetValue);
+    
+    return smoothedValue;
+  };
+
   // 최적화된 입모양 제어 함수 (viseme 적용 전/후 blendshape 값 로그 출력)
   const optimizeMouthShape = (blendshapeName, value, currentModel, realTimeVisemeData = null) => {
     const ENABLE_OPTIMIZATION = true;
@@ -1416,36 +1449,108 @@ const TalkingHeadRefactored = forwardRef(({
     // 모델별 가중치 설정
     if (currentModel === 'brunette') {
       weight = 1.0;
-    } else if (currentModel === 'man') {
-      if (blendshapeName && blendshapeName.toLowerCase().includes('mouthsmile')) {
-        weight = 1.4; // 입 미소 표현 강화
-      } else {
-        weight = 1.0;
-      }
-    } else if (currentModel === 'woman') {
+    } else if (currentModel === 'woman'||currentModel === 'man') {
       // audioBase64를 AudioManager의 extractViseme 메서드를 활용하여 viseme(음소) 추출
       // viseme에 따라 해당 블렌드셰입에만 가중치를 적용
 
-      // viseme와 blendshape 매핑 (예시)
+      // viseme와 blendshape 매핑 - 주변 표정들도 함께 움직이도록 확장
       const visemeBlendshapeMap = {
-        'aa': ['jawopen', 'mouthstretch', 'mouthlowerdown'], // '아'
-        'E': ['mouthstretch', 'mouthsmile', 'mouthleft', 'mouthright'], // '에'
-        'I': ['mouthsmile', 'mouthupperup'], // '이'
-        'O': ['mouthfunnel', 'mouthpucker', 'jawforward'], // '오'
-        'U': ['mouthpucker', 'mouthfunnel'], // '우'
-        'SS': ['mouthshrugupper', 'mouthshruglower'], // 치찰음 계열
+        'aa': [
+          'jawopen', 'mouthstretch', 'mouthlowerdown', // 주요 블렌드쉐이프
+          'mouthrolllower', 'mouthdimple', 'cheekpuff' // 주변 표정
+        ], // '아'
+        'E': [
+          'mouthstretch', 'mouthsmile', 'mouthleft', 'mouthright', // 주요 블렌드쉐이프
+          'mouthupperup', 'mouthdimple', 'mouthrollupper' // 주변 표정
+        ], // '에'
+        'I': [
+          'mouthsmile', 'mouthupperup', // 주요 블렌드쉐이프
+          'mouthdimple', 'mouthstretch', 'cheeksquint' // 주변 표정
+        ], // '이'
+        'O': [
+          'mouthfunnel', 'mouthpucker', 'jawforward', // 주요 블렌드쉐이프
+          'cheekpuff', 'mouthrollupper', 'mouthrolllower' // 주변 표정
+        ], // '오'
+        'U': [
+          'mouthpucker', 'mouthfunnel', // 주요 블렌드쉐이프
+          'cheekpuff', 'mouthrollupper', 'mouthrolllower' // 주변 표정
+        ], // '우'
+        'SS': [
+          'mouthshrugupper', 'mouthshruglower', // 주요 블렌드쉐이프
+          'mouthstretch', 'mouthrollupper' // 주변 표정
+        ], // 치찰음 계열
         'sil': [] // 무음
       };
 
-      // viseme별 가중치
+      // viseme별 가중치 - 주변 표정들도 함께 움직이도록 확장
       const visemeWeights = {
-        'aa': 2.5,
-        'E': 2.5,
-        'I': 2.5,
-        'O': 2.5,
-        'U': 2.5,
-        'SS': 2.5,
-        'sil': 2.5
+        'aa': {
+          primary: 1.5,
+          secondary: {
+            'jawopen': 1.3,
+            'mouthstretch': 1.2,
+            'mouthlowerdown': 1.1,
+            'mouthrolllower': 0.8,
+            'mouthdimple': 0.6,
+            'cheekpuff': 0.4
+          }
+        },
+        'E': {
+          primary: 1.0,
+          secondary: {
+            'mouthstretch': 1.2,
+            'mouthsmile': 1.1,
+            'mouthleft': 0.9,
+            'mouthright': 0.9,
+            'mouthupperup': 0.8,
+            'mouthdimple': 0.7,
+            'mouthrollupper': 0.6
+          }
+        },
+        'I': {
+          primary: 1.5,
+          secondary: {
+            'mouthsmile': 1.3,
+            'mouthupperup': 1.2,
+            'mouthdimple': 0.9,
+            'mouthstretch': 0.8,
+            'cheeksquint': 0.6
+          }
+        },
+        'O': {
+          primary: 1.5,
+          secondary: {
+            'mouthfunnel': 1.3,
+            'mouthpucker': 1.2,
+            'jawforward': 1.1,
+            'cheekpuff': 0.8,
+            'mouthrollupper': 0.7,
+            'mouthrolllower': 0.6
+          }
+        },
+        'U': {
+          primary: 1.5,
+          secondary: {
+            'mouthpucker': 1.3,
+            'mouthfunnel': 1.2,
+            'cheekpuff': 0.8,
+            'mouthrollupper': 0.7,
+            'mouthrolllower': 0.6
+          }
+        },
+        'SS': {
+          primary: 1.0,
+          secondary: {
+            'mouthshrugupper': 1.2,
+            'mouthshruglower': 1.1,
+            'mouthstretch': 0.8,
+            'mouthrollupper': 0.6
+          }
+        },
+        'sil': {
+          primary: 1.0,
+          secondary: {}
+        }
       };
 
       // 기타 블렌드셰입 기본 가중치
@@ -1532,22 +1637,57 @@ const TalkingHeadRefactored = forwardRef(({
           });
         }
 
-        // 1. 현재 viseme에 해당하는 블렌드셰입이면, 해당 viseme 가중치 적용
+        // viseme에 따른 가중치 적용 - 새로운 구조 지원
         if (visemeBlendshapeMap[currentViseme]) {
-          // viseme에 매칭되는 블렌드셰입에만 가중치 적용
-          if (visemeBlendshapeMap[currentViseme].some(visemeShape => lowerBlendshape.includes(visemeShape))) {
-            foundWeight = visemeWeights[currentViseme] || 1.0;
-            
-            // jawopen 가중치 적용 시 로그
-            if (isJawOpen) {
-              console.log(`✅ [JawOpen] 가중치 적용됨:`, {
-                viseme: currentViseme,
-                weight: foundWeight,
-                originalValue: value,
-                calculatedValue: value * foundWeight
-              });
+          const visemeBlendshapes = visemeBlendshapeMap[currentViseme];
+          const isVisemeBlendshape = visemeBlendshapes.some(name => 
+            lowerBlendshape.includes(name.toLowerCase())
+          );
+          
+          if (isVisemeBlendshape) {
+            // 새로운 가중치 구조 확인
+            if (typeof visemeWeights[currentViseme] === 'object' && visemeWeights[currentViseme].primary) {
+              // 새로운 구조: primary + secondary
+              const visemeWeight = visemeWeights[currentViseme];
+              
+              // 주요 블렌드쉐이프인지 확인 (앞 3개)
+              const isPrimary = visemeBlendshapes.slice(0, 3).some(name => 
+                lowerBlendshape.includes(name.toLowerCase())
+              );
+              
+              if (isPrimary) {
+                foundWeight = visemeWeight.primary;
+              } else {
+                // secondary 블렌드쉐이프인지 확인
+                const secondaryKey = Object.keys(visemeWeight.secondary).find(key => 
+                  lowerBlendshape.includes(key.toLowerCase())
+                );
+                if (secondaryKey) {
+                  foundWeight = visemeWeight.secondary[secondaryKey];
+                } else {
+                  foundWeight = visemeWeight.primary * 0.8; // 기본 secondary 가중치
+                }
+              }
+            } else {
+              // 기존 구조: 단순 숫자
+              foundWeight = visemeWeights[currentViseme] || 1.0;
             }
           }
+        }
+
+        // 1. 현재 viseme에 해당하는 블렌드셰입이면, 해당 viseme 가중치 적용 (새로운 시스템에서 이미 처리됨)
+        // 새로운 가중치 시스템이 위에서 처리하므로 이 부분은 제거
+        // 기존 로직은 새로운 시스템과 중복되므로 제거
+        
+        // 새로운 가중치 시스템 디버깅 로그
+        if (isJawOpen && foundWeight !== 1.0) {
+          console.log(`✅ [JawOpen] 새로운 가중치 시스템 적용:`, {
+            viseme: currentViseme,
+            weight: foundWeight,
+            originalValue: value,
+            calculatedValue: value * foundWeight,
+            blendshapeName: blendshapeName
+          });
         }
 
         // 2. viseme 매칭이 없으면 기타 블렌드셰입 기본 가중치 적용
@@ -1565,6 +1705,22 @@ const TalkingHeadRefactored = forwardRef(({
 
     // 최종 가중치 적용 및 범위 제한
     optimizedValue = Math.min(optimizedValue * weight, 1.0);
+
+    // 부드러운 전환 적용 (입 관련 블렌드셰이프에만)
+    const isMouthRelated = blendshapeName.toLowerCase().includes('mouth') || 
+                           blendshapeName.toLowerCase().includes('jaw') ||
+                           blendshapeName.toLowerCase().includes('lip') ||
+                           blendshapeName.toLowerCase().includes('cheek') ||
+                           blendshapeName.toLowerCase().includes('viseme') ||
+                           blendshapeName.toLowerCase().includes('tongue');
+    
+    if (isMouthRelated) {
+      // 입 관련 블렌드셰이프는 부드러운 전환 적용
+      optimizedValue = smoothBlendshapeValue(blendshapeName, optimizedValue, 0.2); // 더 부드럽게
+    } else {
+      // 기타 블렌드셰이프는 즉시 적용
+      optimizedValue = smoothBlendshapeValue(blendshapeName, optimizedValue, 0.25);
+    }
 
     // jawopen 블렌드쉐이프만 로그 출력 (스팸 방지)
     if (isJawOpen) {
@@ -1717,6 +1873,16 @@ const TalkingHeadRefactored = forwardRef(({
     const { head } = morphTargetsRef.current;
     let startTime = null;
     
+    // 블렌드셰이프 부드러운 전환을 위한 초기 상태 설정
+    morphTargetNames.forEach((morphName) => {
+      const morphIndex = head.mesh.morphTargetDictionary[morphName];
+      if (morphIndex !== undefined) {
+        const currentValue = head.mesh.morphTargetInfluences[morphIndex] || 0;
+        currentValuesRef.current.set(morphName, currentValue);
+        targetValuesRef.current.set(morphName, currentValue);
+      }
+    });
+    
     // 블렌드셰이프 애니메이션 루프
     const animateBlendshape = (now) => {
       if (stopped) return;
@@ -1787,6 +1953,9 @@ const TalkingHeadRefactored = forwardRef(({
             // 실시간 viseme이 있으면 전달
             const visemeData = realTimeViseme ? { viseme: realTimeViseme } : null;
             value = optimizeMouthShape(morphName, value, currentModel, visemeData);
+          } else {
+            // 입과 관련없는 블렌드셰이프도 부드러운 전환 적용
+            value = smoothBlendshapeValue(morphName, value, 0.3);
           }
           
           // 자연스러운 표정을 위해 mouth smile 자동 증가

@@ -621,6 +621,13 @@ export default function Home() {
               if (!ttsData.audio.startsWith('data:audio')) {
                 URL.revokeObjectURL(audioUrl);
               }
+              
+              // AudioAnalyzer 연결 해제 후 DOM에서 제거
+              if (window.audioManagerRef && window.audioManagerRef.current) {
+                console.log('🔄 [Page] 오디오 재생 완료 - AudioAnalyzer 연결 해제');
+                window.audioManagerRef.current.setAudioAnalyzer(null);
+              }
+              
               // 재생 완료 후 DOM에서 제거
               if (audio.parentNode) {
                 audio.remove();
@@ -629,6 +636,12 @@ export default function Home() {
             });
             
             audio.addEventListener('error', (error) => {
+              // AudioAnalyzer 연결 해제 후 DOM에서 제거
+              if (window.audioManagerRef && window.audioManagerRef.current) {
+                console.log('🔄 [Page] 오디오 재생 오류 - AudioAnalyzer 연결 해제');
+                window.audioManagerRef.current.setAudioAnalyzer(null);
+              }
+              
               // 오류 발생 시 DOM에서 제거
               if (audio.parentNode) {
                 audio.remove();
