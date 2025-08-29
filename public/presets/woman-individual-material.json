@@ -1,0 +1,104 @@
+{
+  "modelName": "woman",
+  "description": "Woman 모델 개별 메터리얼 카테고리별 설정",
+  "timestamp": "2024-01-01T00:00:00.000Z",
+  "version": "1.0",
+  "individualMaterial": {
+    "skin": {
+      "metalness": 0.0,
+      "roughness": 0.75,
+      "clearcoat": 0.0,
+      "envMapIntensity": 0.1,
+      "specularIntensity": 0.3,
+      "sheen": 0.0,
+      "reflectivity": 0.1
+    },
+    "hair": {
+      "metalness": 0.0,
+      "roughness": 1.0,
+      "clearcoat": 0.0,
+      "envMapIntensity": 0.0,
+      "specularIntensity": 0.0,
+      "sheen": 0.0,
+      "reflectivity": 0.3,
+      "alphaHash": true,
+      "alphaHashScale": 0.1,
+      "alphaTest": 0.0
+    },
+    "eyes": {
+      "metalness": 0.1,
+      "roughness": 0.1,
+      "clearcoat": 0.9,
+      "envMapIntensity": 0.8,
+      "specularIntensity": 0.9,
+      "sheen": 0.0,
+      "reflectivity": 0.8
+    },
+    "clothing": {
+      "metalness": 0.0,
+      "roughness": 0.8,
+      "clearcoat": 0.1,
+      "envMapIntensity": 0.2,
+      "specularIntensity": 0.3,
+      "sheen": 0.2,
+      "reflectivity": 0.2
+    },
+    "teeth": {
+      "metalness": 0.0,
+      "roughness": 0.2,
+      "clearcoat": 0.7,
+      "envMapIntensity": 0.3,
+      "specularIntensity": 0.8,
+      "sheen": 0.0,
+      "reflectivity": 0.6
+    },
+    "eyebrows": {
+      "metalness": 0.0,
+      "roughness": 0.7,
+      "clearcoat": 0.2,
+      "envMapIntensity": 0.3,
+      "specularIntensity": 0.5,
+      "sheen": 0.4,
+      "reflectivity": 0.3
+    },
+    "eyelashes": {
+      "metalness": 0.0,
+      "roughness": 1.0,
+      "clearcoat": 0.0,
+      "envMapIntensity": 0.0,
+      "specularIntensity": 0.0,
+      "sheen": 0.5,
+      "reflectivity": 0.0,
+      "alphaHash": true,
+      "alphaHashScale": 1.0,
+      "alphaTest": 0.0
+    },
+    "nails": {
+      "metalness": 0.0,
+      "roughness": 0.1,
+      "clearcoat": 0.9,
+      "envMapIntensity": 0.8,
+      "specularIntensity": 0.9,
+      "sheen": 0.0,
+      "reflectivity": 0.7
+    },
+    "lips": {
+      "metalness": 0.0,
+      "roughness": 0.3,
+      "clearcoat": 0.4,
+      "envMapIntensity": 0.4,
+      "specularIntensity": 0.7,
+      "sheen": 0.3,
+      "reflectivity": 0.4
+    },
+    "tongue": {
+      "metalness": 0.0,
+      "roughness": 0.5,
+      "clearcoat": 0.3,
+      "envMapIntensity": 0.4,
+      "specularIntensity": 0.5,
+      "sheen": 0.2,
+      "reflectivity": 0.3
+    }
+  }
+}

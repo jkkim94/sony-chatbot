@@ -1,0 +1,101 @@
+{
+  "name": "기본 렌더링 설정",
+  "description": "표준적인 렌더링 품질과 성능 균형",
+  "version": "1.0.0",
+  "settings": {
+    "pixelRatio": 1.0,
+    "shadowMapSize": 1024,
+    "antialias": true,
+    "renderingMode": "standard",
+    "preferWebGPU": true,
+    "webGPUBackend": "webgpu",
+    "fallbackToWebGL": true,
+    "outputColorSpace": "srgb",
+    "toneMapping": "aces",
+    "toneMappingExposure": 1.0,
+    "taaEnabled": true,
+    "taaSampleLevel": 3,
+    "fxaaEnabled": true,
+    "alpha": true,
+    "powerPreference": "high-performance",
+    "stencil": false,
+    "depth": true,
+    "preserveDrawingBuffer": false,
+    "failIfMajorPerformanceCaveat": false,
+    "premultipliedAlpha": false
+  },
+  "performance": {
+    "lowEnd": {
+      "pixelRatio": 0.8,
+      "shadowMapSize": 1024,
+      "taaEnabled": false,
+      "taaSampleLevel": 2,
+      "fxaaEnabled": true
+    },
+    "highEnd": {
+      "pixelRatio": 2.0,
+      "shadowMapSize": 1024,
+      "taaEnabled": true,
+      "taaSampleLevel": 5,
+      "fxaaEnabled": true
+    }
+  },
+  "renderingModes": {
+    "standard": {
+      "name": "표준",
+      "emoji": "🎯",
+      "description": "균형잡힌 렌더링 품질",
+      "pixelRatio": 1.0,
+      "shadowMapSize": 1024,
+      "taaEnabled": true,
+      "taaSampleLevel": 3,
+      "fxaaEnabled": true
+    },
+    "performance": {
+      "name": "성능",
+      "emoji": "⚡",
+      "description": "빠른 렌더링 (낮은 품질)",
+      "pixelRatio": 0.8,
+      "shadowMapSize": 1024,
+      "taaEnabled": false,
+      "taaSampleLevel": 1,
+      "fxaaEnabled": true
+    },
+    "quality": {
+      "name": "고품질",
+      "emoji": "💎",
+      "description": "최고 품질 (느린 렌더링)",
+      "pixelRatio": 2.0,
+      "shadowMapSize": 1024,
+      "taaEnabled": true,
+      "taaSampleLevel": 5,
+      "fxaaEnabled": true
+    }
+  },
+  "postProcessingPresets": {
+    "cinema": {
+      "name": "영화급",
+      "emoji": "🎬",
+      "description": "최고 품질 (성능 85%)",
+      "taaEnabled": true,
+      "taaSampleLevel": 5,
+      "fxaaEnabled": true
+    },
+    "game": {
+      "name": "게임",
+      "emoji": "🎮",
+      "description": "균형 설정 (성능 90%)",
+      "taaEnabled": true,
+      "taaSampleLevel": 2,
+      "fxaaEnabled": true
+    },
+    "performance": {
+      "name": "성능",
+      "emoji": "⚡",
+      "description": "후처리 없음 (성능 100%)",
+      "taaEnabled": false,
+      "taaSampleLevel": 0,
+      "fxaaEnabled": false
+    }
+  }
+}

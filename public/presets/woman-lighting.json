@@ -1,0 +1,42 @@
+{
+  "directional": {
+    "enabled": true,
+    "intensity": 2.8,
+    "color": [1.0, 0.95, 0.9],
+    "position": [0.0, 0.5, 1.8],
+    "target": [0, 0, 0],
+    "castShadow": false
+  },
+  "point": {
+    "enabled": true,
+    "intensity": 1.0,
+    "color": [0.95, 0.9, 1.0],
+    "position": [-1.0, 1.5, 1.5],
+    "distance": 0,
+    "decay": 2,
+    "castShadow": false
+  },
+  "spot": {
+    "enabled": false,
+    "intensity": 1.8,
+    "color": [1.0, 1.0, 1.0],
+    "position": [-2, 3, 1],
+    "target": [0, 1, 0],
+    "angle": 0.5236,
+    "penumbra": 0.2,
+    "distance": 0,
+    "decay": 2,
+    "castShadow": false
+  },
+  "ambient": {
+    "enabled": true,
+    "intensity": 0.4,
+    "color": [0.95, 0.9, 1.0]
+  },
+  "overall": {
+    "contrast": 1.0,
+    "brightness": 1.0,
+    "warmth": 1.0,
+    "exposure": 1.0
+  }
+}

@@ -10,13 +10,7 @@ node_modules/
 /.next/
 /out/
 
-# Production
-/build
-public/
-/public
-.fbx
-.glb
-.svg
+
 # Misc
 .DS_Store
 *.tgz
