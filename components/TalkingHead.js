@@ -1,6 +1,5 @@
-
 // React imports
-import { useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react';
+import { useEffect, useRef, useState, forwardRef, useImperativeHandle, useCallback } from 'react';
 
 // Three.js imports
 import * as THREE from 'three';
@@ -26,6 +25,116 @@ import { applyBlendshapeValue } from '../utils/blendshapeUtils';
 // Three.js 캐시 활성화 (성능 향상)
 THREE.Cache.enabled = true;
 console.log('🚀 [TalkingHead] Three.js 캐시 활성화됨');
+
+// ========================================
+// ===== DEBUG SYSTEM INITIALIZATION =====
+// ========================================
+
+// 클라이언트 사이드에서만 디버그 시스템 초기화
+const initializeDebugSystem = () => {
+  if (typeof window === 'undefined') return;
+  
+  // 전역 디버그 시스템 초기화
+  if (!window.__DEBUG_VISEME_PROCESS__) {
+    window.__DEBUG_VISEME_PROCESS__ = {
+      lastLogTime: 0,
+      logThrottleMs: 800, // 0.8초마다 로그 허용
+      shouldLog() {
+        const now = Date.now();
+        if (now - this.lastLogTime > this.logThrottleMs) {
+          this.lastLogTime = now;
+          return true;
+        }
+        return false;
+      }
+    };
+  }
+
+  // 디버그 모드 전역 제어 함수
+  window.enableVisemeDebug = (enabled = true) => {
+    if (enabled) {
+      console.log('🔍 [Debug] Viseme 처리 디버그 모드 활성화됨');
+      console.log('🔍 [Debug] 사용 가능한 디버그 함수들:');
+      console.log('  - window.enableVisemeDebug(true/false)');
+      console.log('  - window.enableAudioDebug(true/false)');
+      console.log('  - window.enableBlendshapeDebug(true/false)');
+      console.log('  - window.showDebugStatus()');
+    } else {
+      console.log('🔍 [Debug] Viseme 처리 디버그 모드 비활성화됨');
+    }
+  };
+
+  // 오디오 디버그 모드 제어
+  window.enableAudioDebug = (enabled = true) => {
+    if (window.audioManagerRef && window.audioManagerRef.current) {
+      window.audioManagerRef.current.setDebugMode(enabled);
+    } else {
+      console.warn('🔍 [Debug] AudioManager가 아직 초기화되지 않음');
+    }
+  };
+
+  // 블렌드쉐이프 디버그 모드 제어
+  window.enableBlendshapeDebug = (enabled = true) => {
+    if (enabled) {
+      window.__blendshapeLogState = {
+        lastLogTime: 0,
+        logThrottleMs: 300, // 0.3초마다 로그 허용
+        appliedCount: 0,
+        lastValues: new Map()
+      };
+      console.log('🔍 [Debug] Blendshape 디버그 모드 활성화됨');
+    } else {
+      window.__blendshapeLogState = null;
+      console.log('🔍 [Debug] Blendshape 디버그 모드 비활성화됨');
+    }
+  };
+
+  // 디버그 상태 확인
+window.showDebugStatus = () => {
+  console.log('🔍 [Debug] 현재 디버그 상태:');
+  console.log('  - Viseme 처리:', window.__DEBUG_VISEME_PROCESS__ ? '활성화' : '비활성화');
+  console.log('  - Blendshape:', window.__blendshapeLogState ? '활성화' : '비활성화');
+  
+  if (window.audioManagerRef && window.audioManagerRef.current) {
+    const audioStatus = window.audioManagerRef.current.getStatus();
+    console.log('  - AudioManager:', audioStatus);
+  } else {
+    console.log('  - AudioManager: 초기화되지 않음');
+  }
+};
+
+// 실시간 분석 테스트
+window.testRealTimeAnalysis = () => {
+  if (window.audioManagerRef && window.audioManagerRef.current) {
+    return window.audioManagerRef.current.testRealTimeAnalysis();
+  } else {
+    console.warn('🔍 [Debug] AudioManager가 초기화되지 않음');
+    return null;
+  }
+};
+
+// AudioAnalyzer 강제 재설정
+window.resetAudioAnalyzer = async () => {
+  try {
+    const audioElement = document.querySelector('audio') || document.querySelector('video');
+    if (audioElement && window.audioManagerRef && window.audioManagerRef.current) {
+      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+              const { createAudioAnalyzer } = await import('../utils/audioAnalysis');
+      const audioAnalyzer = createAudioAnalyzer(audioContext, audioElement);
+      
+      window.audioManagerRef.current.setAudioAnalyzer(audioAnalyzer);
+      console.log('🔊 [Debug] AudioAnalyzer 강제 재설정 완료');
+      return true;
+    } else {
+      console.warn('🔍 [Debug] 오디오 요소 또는 AudioManager를 찾을 수 없음');
+      return false;
+    }
+  } catch (error) {
+    console.error('🔍 [Debug] AudioAnalyzer 재설정 실패:', error);
+    return false;
+  }
+};
+};
 
 // 애니메이션 관련 상수
 const ANIMATION_CONSTANTS = {
@@ -288,6 +397,200 @@ const TalkingHeadRefactored = forwardRef(({
   const particleTrailManagerRef = useRef(new ParticleTrailManager());
   const cameraManagerRef = useRef(new CameraManager());
   const preloadManagerRef = useRef(new PreloadManager());
+
+  // AudioManager를 전역으로 등록 (디버그 시스템에서 접근하기 위함)
+  useEffect(() => {
+    if (audioManagerRef.current) {
+      window.audioManagerRef = audioManagerRef;
+      console.log('🔗 [TalkingHead] AudioManager를 window 객체에 등록 완료');
+      
+      // AudioManager 디버그 모드 활성화 (intensity 계산 과정 확인용)
+      audioManagerRef.current.setDebugMode(true);
+      console.log('🔊 [TalkingHead] AudioManager 디버그 모드 활성화됨');
+    }
+  }, []);
+
+  // AudioAnalyzer 설정 함수를 useCallback으로 감싸기
+  const setupAudioAnalyzer = useCallback(async () => {
+    try {
+      // 오디오 요소가 있는지 확인 (더 적극적으로 검색)
+      let audioElement = document.querySelector('audio[data-audio-analysis]') || 
+                        document.querySelector('audio') || 
+                        document.querySelector('video');
+      
+      // 더 구체적인 선택자로 검색
+      if (!audioElement) {
+        audioElement = document.querySelector('audio[src]') || 
+                      document.querySelector('video[src]') ||
+                      document.querySelector('audio[data-src]') ||
+                      document.querySelector('video[data-src]');
+      }
+      
+      console.log('🔍 [AudioAnalyzer] 찾은 오디오 요소:', audioElement);
+      
+      if (audioElement && audioManagerRef.current) {
+        // 오디오 요소의 상태 확인
+        console.log('🔍 [AudioAnalyzer] 오디오 요소 상태:', {
+          tagName: audioElement.tagName,
+          src: audioElement.src || audioElement.currentSrc,
+          readyState: audioElement.readyState,
+          networkState: audioElement.networkState,
+          paused: audioElement.paused,
+          ended: audioElement.ended,
+          duration: audioElement.duration,
+          currentTime: audioElement.currentTime,
+          hasDataAudioAnalysis: audioElement.hasAttribute('data-audio-analysis')
+        });
+        
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const { createAudioAnalyzer } = await import('../utils/audioAnalysis');
+        const audioAnalyzer = createAudioAnalyzer(audioContext, audioElement);
+        
+        if (audioAnalyzer) {
+          audioManagerRef.current.setAudioAnalyzer(audioAnalyzer);
+          console.log('🔊 [TalkingHead] AudioAnalyzer 설정 완료');
+          
+          // 연결 상태 확인
+          setTimeout(() => {
+            if (audioManagerRef.current.audioAnalyzer) {
+              console.log('✅ [AudioAnalyzer] 연결 상태 확인됨');
+            } else {
+              console.warn('❌ [AudioAnalyzer] 연결 실패');
+            }
+          }, 500);
+        } else {
+          console.error('❌ [AudioAnalyzer] createAudioAnalyzer가 null을 반환함');
+        }
+      } else {
+        console.warn('🔍 [AudioAnalyzer] 오디오 요소 또는 AudioManager를 찾을 수 없음');
+        console.log('🔍 [AudioAnalyzer] 현재 DOM 상태:', {
+          audioElements: document.querySelectorAll('audio').length,
+          videoElements: document.querySelectorAll('video').length,
+          dataAudioAnalysisElements: document.querySelectorAll('audio[data-audio-analysis]').length,
+          audioManagerExists: !!audioManagerRef.current
+        });
+      }
+    } catch (error) {
+      console.warn('🔊 [TalkingHead] AudioAnalyzer 설정 실패:', error);
+    }
+  }, []);
+
+  // AudioAnalyzer 설정 (실시간 오디오 분석용)
+  useEffect(() => {
+
+    // 컴포넌트 마운트 후 AudioAnalyzer 설정 (더 빠르게)
+    const timer = setTimeout(setupAudioAnalyzer, 500);
+    
+    // DOM 변화 감지하여 오디오 요소가 추가될 때마다 AudioAnalyzer 연결 시도
+    const observer = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        if (mutation.type === 'childList') {
+          mutation.addedNodes.forEach((node) => {
+            if (node.nodeType === Node.ELEMENT_NODE) {
+              // audio[data-audio-analysis] 요소가 추가되었는지 확인
+              if (node.matches && node.matches('audio[data-audio-analysis]')) {
+                console.log('🎵 [AudioAnalyzer] 새로운 오디오 요소 감지됨:', node);
+                // 즉시 AudioAnalyzer 연결 시도
+                setTimeout(() => {
+                  if (audioManagerRef.current && !audioManagerRef.current.audioAnalyzer) {
+                    setupAudioAnalyzer();
+                  }
+                }, 100);
+              }
+              // 자식 요소들도 확인
+              const audioElements = node.querySelectorAll && node.querySelectorAll('audio[data-audio-analysis]');
+              if (audioElements && audioElements.length > 0) {
+                console.log('🎵 [AudioAnalyzer] 자식 요소에서 오디오 요소 감지됨:', audioElements);
+                setTimeout(() => {
+                  if (audioManagerRef.current && !audioManagerRef.current.audioAnalyzer) {
+                    setupAudioAnalyzer();
+                  }
+                }, 100);
+              }
+            }
+          });
+        }
+      });
+    });
+
+    // DOM 변화 감지 시작
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true
+    });
+    
+    return () => {
+      clearTimeout(timer);
+      observer.disconnect();
+    };
+  }, []);
+
+  // AudioAnalyzer 연결 상태 지속 모니터링 및 재연결 (더 적극적으로)
+  const monitorAndReconnect = useCallback(async () => {
+    // AudioAnalyzer가 연결되지 않았거나 연결이 끊어진 경우
+    if (!audioManagerRef.current?.audioAnalyzer) {
+      console.log('🔄 [AudioAnalyzer] 연결 시도 중...');
+      
+      try {
+        // 오디오 요소 재검색 (더 적극적으로)
+        let audioElement = document.querySelector('audio[data-audio-analysis]') || 
+                          document.querySelector('audio') || 
+                          document.querySelector('video');
+        
+        if (!audioElement) {
+          audioElement = document.querySelector('audio[src]') || 
+                        document.querySelector('video[src]') ||
+                        document.querySelector('audio[data-src]') ||
+                        document.querySelector('video[data-src]');
+        }
+        
+        if (audioElement && audioManagerRef.current) {
+          console.log('🔄 [AudioAnalyzer] 재연결 시도 - 오디오 요소:', audioElement);
+          
+          const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+          const { createAudioAnalyzer } = await import('../utils/audioAnalysis');
+          const audioAnalyzer = createAudioAnalyzer(audioContext, audioElement);
+          
+          if (audioAnalyzer) {
+            audioManagerRef.current.setAudioAnalyzer(audioAnalyzer);
+            console.log('🔄 [AudioAnalyzer] 재연결 완료');
+            
+            // 연결 상태 확인
+            setTimeout(() => {
+              if (audioManagerRef.current.audioAnalyzer) {
+                console.log('✅ [AudioAnalyzer] 재연결 상태 확인됨');
+              } else {
+                console.warn('❌ [AudioAnalyzer] 재연결 실패');
+              }
+            }, 200);
+          } else {
+            console.error('❌ [AudioAnalyzer] 재연결 시도 중 createAudioAnalyzer 실패');
+          }
+        } else {
+          console.log('🔍 [AudioAnalyzer] 재연결 시도: 오디오 요소 또는 AudioManager를 찾을 수 없음');
+        }
+      } catch (error) {
+        console.warn('🔊 [AudioAnalyzer] 재연결 시도 실패:', error);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    // 1초마다 연결 상태 확인 및 필요시 재연결 (더 자주)
+    const interval = setInterval(monitorAndReconnect, 1000);
+    
+    // 초기 실행
+    monitorAndReconnect();
+    
+    return () => clearInterval(interval);
+  }, [monitorAndReconnect]);
+
+
+
+  // 디버그 시스템 초기화 (클라이언트 사이드에서만)
+  useEffect(() => {
+    initializeDebugSystem();
+  }, []);
 
   // 씬 객체 refs
   const floorRef = useRef(null);
@@ -1092,17 +1395,24 @@ const TalkingHeadRefactored = forwardRef(({
     return isEyeTracking;
   };
 
-  // 최적화된 입모양 제어 함수
-  const optimizeMouthShape = (blendshapeName, value, currentModel) => {
+  // 최적화된 입모양 제어 함수 (viseme 적용 전/후 blendshape 값 로그 출력)
+  const optimizeMouthShape = (blendshapeName, value, currentModel, realTimeVisemeData = null) => {
     const ENABLE_OPTIMIZATION = true;
-    
+
+    // jawopen 블렌드쉐이프만 로그 출력 (스팸 방지)
+    const isJawOpen = blendshapeName && blendshapeName.toLowerCase().includes('jawopen');
+    if (isJawOpen) {
+      console.log(`[optimizeMouthShape] 적용 전: blendshape='${blendshapeName}', value=${value}, model=${currentModel}`);
+    }
+
     if (!ENABLE_OPTIMIZATION) {
+      // 최적화 비활성화 시 그대로 반환
       return value;
     }
-    
+
     let optimizedValue = value;
     let weight = 1.0;
-    
+
     // 모델별 가중치 설정
     if (currentModel === 'brunette') {
       weight = 1.0;
@@ -1113,66 +1423,154 @@ const TalkingHeadRefactored = forwardRef(({
         weight = 1.0;
       }
     } else if (currentModel === 'woman') {
-      // ARKIT52 블렌드셰이프(입 관련) + viseme만 남김 (좌우 구분 없이 합침)
-      const mouthBlendshapeWeights = [
-        { names: ['mouthsmile'], weight: 1.0 },
-        { names: ['mouthdimple'], weight: 1.0 },
-        { names: ['mouthpress'], weight: 1.0 },
-        { names: ['mouthshrugupper'], weight: 1.0 },
-        { names: ['mouthshruglower'], weight: 1.0 },
-        { names: ['mouthfunnel'], weight: 1.0 },
-        { names: ['mouthpucker'], weight: 1.0 },
-        { names: ['mouthleft'], weight: 1.0 },
-        { names: ['mouthright'], weight: 1.0 },
-        { names: ['mouthrollupper'], weight: 1.0 },
-        { names: ['mouthrolllower'], weight: 1.0 },
-        { names: ['mouthfrown'], weight: 1.0 },
-        { names: ['mouthupperup'], weight: 1.0 },
-        { names: ['mouthlowerdown'], weight: 1.0 },
-        { names: ['mouthstretch'], weight: 1.0 },
-        { names: ['jawopen'], weight: 1.0 },
-        { names: ['jawforward'], weight: 1.0 },
-        { names: ['jawleft'], weight: 1.0 },
-        { names: ['jawright'], weight: 1.0 },
-        { names: ['mouthclose'], weight: 1.0 },
-        // viseme_sil: 입을 다문 상태 -> mouthClose 또는 jawOpen이 0에 가까움
-        // ARKIT 52 블렌드셰이프를 viseme로 매핑 (즉, ARKIT 블렌드셰이프가 viseme 값을 참조)
-        // 아래 매핑은 viseme가 활성화(감지)되었을 때 해당 blendshape 값이 viseme 값에 의해 추가로 증폭(조정)될 수 있도록 설계되어야 함.
-        // 예시: AudioManager에서 viseme 값이 추출되면, 해당 viseme가 활성화된 프레임에서 아래 매핑된 blendshape들의 값이 viseme 값에 따라 더 커지도록 처리 필요.
-        // (실제 증폭/조정 로직은 optimizeMouthShape 외부에서 viseme 활성화 시점에 적용해야 함)
-        { names: ['mouthClose', 'jawOpen'], weight: 1.0, substitute: ['viseme_sil'] }, // sil: 입을 다문 상태
-        { names: ['mouthPucker', 'mouthClose'], weight: 1.0, substitute: ['viseme_pp'] }, // pp: 입술을 다물고 내밈
-        { names: ['mouthFunnel', 'mouthPucker'], weight: 1.0, substitute: ['viseme_ff'] }, // ff: 윗니가 아랫입술에 닿음
-        { names: ['jawOpen', 'mouthFunnel', 'mouthPucker'], weight: 1.0, substitute: ['viseme_th'] }, // th: 혀가 이 사이
-        { names: ['jawOpen', 'mouthFunnel'], weight: 1.0, substitute: ['viseme_dd'] }, // dd: 혀가 윗잇몸
-        { names: ['jawOpen'], weight: 1.0, substitute: ['viseme_kk'] }, // kk: 입을 벌리고 혀가 뒤로
-        { names: ['jawOpen', 'mouthFunnel'], weight: 1.0, substitute: ['viseme_ch'] }, // ch: 입을 벌리고 입술 앞으로
-        { names: ['mouthStretchLeft', 'mouthStretchRight'], weight: 1.0, substitute: ['viseme_ss'] }, // ss: 입을 옆으로 벌림
-        { names: ['jawOpen', 'mouthFunnel'], weight: 1.0, substitute: ['viseme_nn'] }, // nn: 입을 약간 벌리고 혀가 윗잇몸
-        { names: ['mouthFunnel', 'mouthPucker'], weight: 1.0, substitute: ['viseme_rr'] }, // rr: 입을 둥글게, 혀가 말림
-        { names: ['jawOpen'], weight: 1.0, substitute: ['viseme_aa'] }, // aa: 입을 크게 벌림
-        { names: ['mouthSmileLeft', 'mouthSmileRight', 'jawOpen'], weight: 1.0, substitute: ['viseme_e'] }, // e: 입꼬리 양쪽으로 벌림
-        { names: ['mouthSmileLeft', 'mouthSmileRight', 'jawOpen'], weight: 1.0, substitute: ['viseme_i'] }, // i: 입꼬리 양쪽으로 크게 벌림
-        { names: ['mouthPucker', 'jawOpen'], weight: 1.0, substitute: ['viseme_o'] }, // o: 입을 둥글게 오므림
-        { names: ['mouthPucker', 'jawOpen'], weight: 1.0, substitute: ['viseme_u'] } // u: 입을 앞으로 내밀고 오므림
-      ];
+      // audioBase64를 AudioManager의 extractViseme 메서드를 활용하여 viseme(음소) 추출
+      // viseme에 따라 해당 블렌드셰입에만 가중치를 적용
+
+      // viseme와 blendshape 매핑 (예시)
+      const visemeBlendshapeMap = {
+        'aa': ['jawopen', 'mouthstretch', 'mouthlowerdown'], // '아'
+        'E': ['mouthstretch', 'mouthsmile', 'mouthleft', 'mouthright'], // '에'
+        'I': ['mouthsmile', 'mouthupperup'], // '이'
+        'O': ['mouthfunnel', 'mouthpucker', 'jawforward'], // '오'
+        'U': ['mouthpucker', 'mouthfunnel'], // '우'
+        'SS': ['mouthshrugupper', 'mouthshruglower'], // 치찰음 계열
+        'sil': [] // 무음
+      };
+
+      // viseme별 가중치
+      const visemeWeights = {
+        'aa': 2.5,
+        'E': 2.5,
+        'I': 2.5,
+        'O': 2.5,
+        'U': 2.5,
+        'SS': 2.5,
+        'sil': 2.5
+      };
+
+      // 기타 블렌드셰입 기본 가중치
+      const defaultBlendshapeWeights = {
+        'mouthdimple': 1.0,
+        'mouthpress': 1.0,
+        'mouthshrugupper': 1.0,
+        'mouthshruglower': 1.0,
+        'mouthrollupper': 1.0,
+        'mouthrolllower': 1.0,
+        'mouthfrown': 1.0,
+        'mouthclose': 1.0,
+        'jawleft': 1.0,
+        'jawright': 1.0
+      };
+
+      // 실시간 viseme 데이터 우선 사용, 없으면 audioBase64에서 추출
+      let currentViseme = 'aa'; // 기본값
+      let visemeIntensity = 0;
+      
+      if (realTimeVisemeData && realTimeVisemeData.viseme) {
+        // 실시간 viseme 데이터 사용
+        currentViseme = realTimeVisemeData.viseme;
+        visemeIntensity = 0.5; // 실시간 데이터는 기본 강도 사용
+        
+        if (isJawOpen) {
+          console.log(`🎤 [RealTime Viseme] 실시간 데이터 사용:`, {
+            viseme: currentViseme,
+            blendshape: blendshapeName
+          });
+        }
+      } else {
+        // 기존 방식: AudioManager를 통해 audioBase64에서 viseme 추출
+        try {
+          if (
+            audioBase64 &&
+            audioManagerRef &&
+            audioManagerRef.current &&
+            typeof audioManagerRef.current.extractViseme === 'function'
+          ) {
+            // extractViseme는 { viseme, intensity } 반환
+            const visemeResult = audioManagerRef.current.extractViseme({ volume: audioBase64 });
+            if (visemeResult && visemeResult.viseme) {
+              currentViseme = visemeResult.viseme;
+              // intensity가 숫자인지 확인하고 안전하게 설정
+              const intensity = visemeResult.intensity;
+              visemeIntensity = typeof intensity === 'number' && !isNaN(intensity) ? intensity : 0;
+              
+              // viseme 처리 과정 로깅 (스팸 방지)
+              if (typeof window !== 'undefined' && 
+                  window.__DEBUG_VISEME_PROCESS__ && 
+                  window.__DEBUG_VISEME_PROCESS__.shouldLog()) {
+                console.log(`🎤 [Viseme] 처리 결과:`, {
+                  viseme: currentViseme,
+                  intensity: typeof visemeIntensity === 'number' ? visemeIntensity.toFixed(3) : visemeIntensity,
+                  audioLength: audioBase64.length,
+                  visemeResult: visemeResult  // 전체 결과도 로깅
+                });
+              }
+            }
+          } else if (window.__DEBUG_VISEME__) {
+            currentViseme = window.__DEBUG_VISEME__;
+          }
+        } catch (e) {
+          currentViseme = 'aa';
+          visemeIntensity = 0; // 에러 발생 시 기본값으로 설정
+          console.warn('🎤 [Viseme] 처리 중 오류:', e);
+        }
+      }
 
       let foundWeight = 1.0;
       if (blendshapeName) {
         const lowerBlendshape = blendshapeName.toLowerCase();
-        for (const item of mouthBlendshapeWeights) {
-          if (item.names.some(name => lowerBlendshape.includes(name))) {
-            foundWeight = item.weight;
-            break;
+
+        // jawopen 블렌드쉐이프에 대한 상세 디버깅
+        if (isJawOpen) {
+          console.log(`🔍 [JawOpen Debug] 가중치 계산 과정:`, {
+            blendshapeName,
+            currentViseme,
+            visemeBlendshapeMap: visemeBlendshapeMap[currentViseme],
+            visemeWeights: visemeWeights[currentViseme],
+            audioBase64Exists: !!audioBase64,
+            audioBase64Length: audioBase64?.length
+          });
+        }
+
+        // 1. 현재 viseme에 해당하는 블렌드셰입이면, 해당 viseme 가중치 적용
+        if (visemeBlendshapeMap[currentViseme]) {
+          // viseme에 매칭되는 블렌드셰입에만 가중치 적용
+          if (visemeBlendshapeMap[currentViseme].some(visemeShape => lowerBlendshape.includes(visemeShape))) {
+            foundWeight = visemeWeights[currentViseme] || 1.0;
+            
+            // jawopen 가중치 적용 시 로그
+            if (isJawOpen) {
+              console.log(`✅ [JawOpen] 가중치 적용됨:`, {
+                viseme: currentViseme,
+                weight: foundWeight,
+                originalValue: value,
+                calculatedValue: value * foundWeight
+              });
+            }
+          }
+        }
+
+        // 2. viseme 매칭이 없으면 기타 블렌드셰입 기본 가중치 적용
+        if (foundWeight === 1.0) {
+          for (const key in defaultBlendshapeWeights) {
+            if (lowerBlendshape.includes(key)) {
+              foundWeight = defaultBlendshapeWeights[key];
+              break;
+            }
           }
         }
       }
       weight = foundWeight;
     }
-    
+
     // 최종 가중치 적용 및 범위 제한
     optimizedValue = Math.min(optimizedValue * weight, 1.0);
-    
+
+    // jawopen 블렌드쉐이프만 로그 출력 (스팸 방지)
+    if (isJawOpen) {
+      console.log(`[optimizeMouthShape] 적용 후: blendshape='${blendshapeName}', value=${optimizedValue}, model=${currentModel}`);
+    }
+
     return optimizedValue;
   };
 
@@ -1217,6 +1615,71 @@ const TalkingHeadRefactored = forwardRef(({
     }
   };
 
+  // 실시간 오디오 데이터로부터 viseme 결정 (개선된 버전)
+  const determineVisemeFromRealTimeData = (realTimeData) => {
+    const { energy, frequency, spectralCentroid, energyVariance } = realTimeData;
+    const { low, mid, high, ultraHigh } = frequency;
+    
+    // 에너지가 너무 낮으면 무음
+    if (energy < 0.03) {
+      return 'sil';
+    }
+    
+    // 주파수 대역별 분석으로 정교한 viseme 결정
+    if (low > 0.4 && low > mid && low > high) {
+      // 모음 (저주파 강함) - 입을 크게 벌림
+      if (low > 0.7) {
+        return 'aa';  // 아 소리 (가장 큰 입)
+      } else if (low > 0.5) {
+        return 'O';   // 오 소리 (큰 입)
+      } else {
+        return 'E';   // 에 소리 (중간 입)
+      }
+    } else if (mid > 0.4 && mid > low && mid > high) {
+      // 자음 (중주파 강함) - 입을 중간으로
+      if (mid > 0.6) {
+        return 'E';   // 에 소리
+      } else {
+        return 'SS';  // 스, 즈 소리
+      }
+    } else if (high > 0.4 && high > low && high > mid) {
+      // 치찰음 (고주파 강함) - 입을 작게
+      if (ultraHigh > 0.5) {
+        return 'SS';  // 강한 치찰음 (시, 치)
+      } else {
+        return 'SS';  // 일반 치찰음 (스, 즈)
+      }
+    } else if (energy > 0.3) {
+      // 균형잡힌 에너지 - 스펙트럼 특성으로 결정
+      if (spectralCentroid < 0.3) {
+        // 저주파 중심 - 모음
+        return low > mid ? 'aa' : 'O';
+      } else if (spectralCentroid < 0.6) {
+        // 중주파 중심 - 자음
+        return mid > high ? 'E' : 'SS';
+      } else {
+        // 고주파 중심 - 치찰음
+        return 'SS';
+      }
+    } else if (energyVariance > 0.2) {
+      // 에너지 변화가 큰 경우 - 활발한 발음
+      if (low > 0.3) {
+        return 'aa';
+      } else if (mid > 0.3) {
+        return 'E';
+      } else {
+        return 'SS';
+      }
+    } else {
+      // 명확하지 않은 경우 - 에너지 기반으로 결정
+      if (energy > 0.2) {
+        return low > mid ? 'E' : 'SS';
+      } else {
+        return 'sil';
+      }
+    }
+  };
+
   // 블렌드셰이프 애니메이션 실행
   const executeBlendshapeAnimation = () => {
     console.log('[TalkingHead] 블렌드셰이프 애니메이션 시작:', {
@@ -1227,6 +1690,18 @@ const TalkingHeadRefactored = forwardRef(({
       modelName: currentModel,
       amplificationEnabled: currentModel === 'man' || currentModel === 'woman' ? '입만 1.3x' : 'none'
     });
+
+    // audioBase64 상태 상세 로깅
+    if (audioBase64) {
+      console.log('🔊 [AudioBase64] 상태 확인:', {
+        exists: true,
+        length: audioBase64.length,
+        type: typeof audioBase64,
+        preview: audioBase64.substring(0, 50) + '...'
+      });
+    } else {
+      console.warn('⚠️ [AudioBase64] audioBase64가 없습니다!');
+    }
 
     // 오디오 재생 상태를 부모에게 알림
     if (onAudioStateChange) {
@@ -1249,6 +1724,47 @@ const TalkingHeadRefactored = forwardRef(({
       const elapsed = now - startTime;
       const frame = Math.floor(elapsed / ANIMATION_CONSTANTS.FRAME_DURATION);
       
+      // 매 프레임마다 실시간 오디오 분석 수행
+      let realTimeViseme = null;
+      if (audioManagerRef.current && audioManagerRef.current.audioAnalyzer) {
+        try {
+          const realTimeData = audioManagerRef.current.analyzeRealTimeAudio();
+          if (realTimeData) {
+            // 실시간 분석 결과로 viseme 결정
+            realTimeViseme = determineVisemeFromRealTimeData(realTimeData);
+            
+            // 디버그 로그 (스팸 방지)
+            if (frame % 30 === 0) { // 30프레임마다 로그
+              console.log(`🎤 [RealTime] 프레임 ${frame}:`, {
+                energy: realTimeData.energy.toFixed(3),
+                viseme: realTimeViseme,
+                lowFreq: realTimeData.frequency.low.toFixed(3),
+                midFreq: realTimeData.frequency.mid.toFixed(3),
+                highFreq: realTimeData.frequency.high.toFixed(3),
+                ultraHighFreq: realTimeData.frequency.ultraHigh.toFixed(3),
+                spectralCentroid: realTimeData.spectralCentroid.toFixed(3),
+                energyVariance: realTimeData.energyVariance.toFixed(3)
+              });
+            }
+          } else {
+            // 실시간 분석이 실패한 경우 로그
+            if (frame % 60 === 0) { // 60프레임마다 로그
+              console.warn(`⚠️ [RealTime] 프레임 ${frame}: 실시간 분석 데이터 없음`);
+            }
+          }
+        } catch (error) {
+          // 실시간 분석 실패 시 로그
+          if (frame % 60 === 0) { // 60프레임마다 로그
+            console.error(`❌ [RealTime] 프레임 ${frame}: 분석 오류:`, error);
+          }
+        }
+      } else {
+        // AudioAnalyzer가 연결되지 않은 경우 로그
+        if (frame % 60 === 0) { // 60프레임마다 로그
+          console.warn(`⚠️ [RealTime] 프레임 ${frame}: AudioAnalyzer 미연결`);
+        }
+      }
+      
       if (frame < blendshapeFrames.length) {
         const frameArr = blendshapeFrames[frame];
         morphTargetNames.forEach((morphName, j) => {
@@ -1259,7 +1775,7 @@ const TalkingHeadRefactored = forwardRef(({
             return; // 건너뛰기
           }
           
-          // 최적화된 입모양 제어 적용
+          // 최적화된 입모양 제어 적용 (실시간 viseme 반영)
           const isMouthRelated = morphName.toLowerCase().includes('mouth') || 
                                  morphName.toLowerCase().includes('jaw') ||
                                  morphName.toLowerCase().includes('lip') ||
@@ -1268,7 +1784,9 @@ const TalkingHeadRefactored = forwardRef(({
                                  morphName.toLowerCase().includes('tongue');
           
           if (isMouthRelated) {
-            value = optimizeMouthShape(morphName, value, currentModel);
+            // 실시간 viseme이 있으면 전달
+            const visemeData = realTimeViseme ? { viseme: realTimeViseme } : null;
+            value = optimizeMouthShape(morphName, value, currentModel, visemeData);
           }
           
           // 자연스러운 표정을 위해 mouth smile 자동 증가

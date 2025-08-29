@@ -20,11 +20,51 @@ export const applyBlendshapeValue = (morphTargets, morphIndex, newValue) => {
       return value;
     };
     
+    // 로그 스로틀링을 위한 전역 변수 (클라이언트 사이드에서만)
+    if (typeof window !== 'undefined' && !window.__blendshapeLogState) {
+      window.__blendshapeLogState = {
+        lastLogTime: 0,
+        logThrottleMs: 500, // 0.5초마다 로그 허용
+        appliedCount: 0,
+        lastValues: new Map()
+      };
+    }
+    
+    const logState = typeof window !== 'undefined' ? window.__blendshapeLogState : null;
+    const now = Date.now();
+    const shouldLog = logState && (now - logState.lastLogTime > logState.logThrottleMs);
+    
+    if (shouldLog && logState) {
+      logState.lastLogTime = now;
+    }
+    
     if (meshCount === 1 || !meshes) {
       // 단일 메시 처리 (기존 방식)
       if (mesh.morphTargetInfluences && morphIndex < mesh.morphTargetInfluences.length) {
+        const oldValue = mesh.morphTargetInfluences[morphIndex];
         const amplifiedValue = getAmplifiedValue(mesh.name, newValue);
-        mesh.morphTargetInfluences[morphIndex] = Math.min(amplifiedValue, 1.0); // 1.0 초과 방지
+        const finalValue = Math.min(amplifiedValue, 1.0); // 1.0 초과 방지
+        
+        mesh.morphTargetInfluences[morphIndex] = finalValue;
+        
+        // 값 변화가 있을 때만 로그 (스팸 방지)
+        const key = `${mesh.name}_${morphIndex}`;
+        const lastValue = logState.lastValues.get(key);
+        const valueChanged = Math.abs(lastValue - finalValue) > 0.01; // 1% 이상 변화 시에만
+        
+        if (valueChanged && shouldLog) {
+          logState.appliedCount++;
+          logState.lastValues.set(key, finalValue);
+          
+          console.log(`🎭 [Blendshape] #${logState.appliedCount} 적용:`, {
+            mesh: mesh.name,
+            morphIndex,
+            oldValue: oldValue.toFixed(3),
+            newValue: newValue.toFixed(3),
+            finalValue: finalValue.toFixed(3),
+            amplified: amplifiedValue !== newValue
+          });
+        }
         
         if (amplifiedValue !== newValue) {
           //console.log(`🎯 [blendshapeUtils] ${mesh.name} 증폭: ${newValue} → ${amplifiedValue.toFixed(3)}`);
@@ -37,11 +77,30 @@ export const applyBlendshapeValue = (morphTargets, morphIndex, newValue) => {
       let updatedCount = 0;
       meshes.forEach((mesh, index) => {
         if (mesh.morphTargetInfluences && morphIndex < mesh.morphTargetInfluences.length) {
+          const oldValue = mesh.morphTargetInfluences[morphIndex];
           const amplifiedValue = getAmplifiedValue(mesh.name, newValue);
-          mesh.morphTargetInfluences[morphIndex] = Math.min(amplifiedValue, 1.0); // 1.0 초과 방지
+          const finalValue = Math.min(amplifiedValue, 1.0); // 1.0 초과 방지
           
-          if (amplifiedValue !== newValue) {
-           // console.log(`🎯 [blendshapeUtils] ${mesh.name} 증폭: ${newValue} → ${amplifiedValue.toFixed(3)}`);
+          mesh.morphTargetInfluences[morphIndex] = finalValue;
+          
+          // 값 변화가 있을 때만 로그 (스팸 방지)
+          const key = `${mesh.name}_${morphIndex}`;
+          const lastValue = logState.lastValues.get(key);
+          const valueChanged = Math.abs(lastValue - finalValue) > 0.01; // 1% 이상 변화 시에만
+          
+          if (valueChanged && shouldLog) {
+            logState.appliedCount++;
+            logState.lastValues.set(key, finalValue);
+            
+            console.log(`🎭 [Blendshape] #${logState.appliedCount} 다중메시 적용:`, {
+              mesh: mesh.name,
+              meshIndex: index,
+              morphIndex,
+              oldValue: oldValue.toFixed(3),
+              newValue: newValue.toFixed(3),
+              finalValue: finalValue.toFixed(3),
+              amplified: amplifiedValue !== newValue
+            });
           }
           
           updatedCount++;

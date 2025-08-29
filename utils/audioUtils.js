@@ -149,6 +149,26 @@ export const playAudioWithAnalysis = (base64Audio) => {
     }
     
     try {
+      // 기존 오디오 요소가 있다면 제거
+      const existingAudio = document.querySelector('audio[data-audio-analysis]');
+      if (existingAudio) {
+        existingAudio.remove();
+      }
+      
+      // base64 데이터로 데이터 URL 생성
+      const audioSrc = `data:audio/mp3;base64,${base64Audio}`;
+      
+      // 오디오 엘리먼트 생성 및 DOM에 추가
+      const audio = document.createElement('audio');
+      audio.src = audioSrc;
+      audio.setAttribute('data-audio-analysis', 'true');
+      audio.style.display = 'none'; // 숨김 처리
+      
+      // 페이지에 추가
+      document.body.appendChild(audio);
+      
+      console.log('🎵 [AudioUtils] 오디오 요소 DOM에 추가됨:', audio);
+      
       // 페이지 로드 시 미리 AudioContext 초기화
       const audioContext = initAudioContext();
       
@@ -200,21 +220,36 @@ export const playAudioWithAnalysis = (base64Audio) => {
       
       // 재생 완료 이벤트
       source.onended = () => {
-        console.log('오디오 재생 완료');
+        console.log('🎵 [AudioUtils] 오디오 재생 완료');
+        // 오디오 요소 제거
+        if (audio && audio.parentNode) {
+          audio.remove();
+        }
         resolve();
       };
       
       // 오류 처리
       source.onerror = (err) => {
-        console.error('오디오 재생 오류:', err);
+        console.error('🎵 [AudioUtils] 오디오 재생 오류:', err);
+        // 오디오 요소 제거
+        if (audio && audio.parentNode) {
+          audio.remove();
+        }
         reject(err);
       };
       
       // 약간의 지연 후 재생 시작 (초기 잘림 방지)
-      console.log(`오디오 재생 시작 (${startDelay}초 후)`);
+      console.log(`🎵 [AudioUtils] 오디오 재생 시작 (${startDelay}초 후)`);
       source.start(startTime);
+      
+      // 오디오 요소도 함께 재생 (AudioAnalyzer 연결을 위해)
+      audio.play().catch(err => {
+        console.warn('🎵 [AudioUtils] audio.play() 실패 (정상적인 경우):', err);
+        // audio.play() 실패는 정상적인 경우일 수 있음 (사용자 상호작용 필요 등)
+      });
+      
     } catch (error) {
-      console.error('오디오 처리 오류:', error);
+      console.error('🎵 [AudioUtils] 오디오 처리 오류:', error);
       reject(error);
     }
   });

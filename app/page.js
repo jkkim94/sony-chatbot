@@ -592,7 +592,7 @@ export default function Home() {
         
         setIsPlaying(true);
         
-        // 5. 오디오 재생
+        // 5. 오디오 재생 (AudioAnalyzer 연결을 위해 data-audio-analysis 속성 추가)
         try {
           let audioUrl;
           if (ttsData.audio.startsWith('data:audio')) {
@@ -607,15 +607,35 @@ export default function Home() {
           const audio = new Audio();
           audio.src = audioUrl;
           
+          // AudioAnalyzer 연결을 위한 속성 설정
+          audio.setAttribute('data-audio-analysis', 'true');
+          audio.style.display = 'none'; // 숨김 처리
+          
+          // DOM에 추가하여 TalkingHead의 MutationObserver가 감지할 수 있도록 함
+          document.body.appendChild(audio);
+          
+          console.log('🎵 [Page] 오디오 요소 생성 및 DOM 추가 완료:', audio);
+          
           await new Promise((resolve, reject) => {
             audio.addEventListener('ended', () => {
               if (!ttsData.audio.startsWith('data:audio')) {
                 URL.revokeObjectURL(audioUrl);
               }
+              // 재생 완료 후 DOM에서 제거
+              if (audio.parentNode) {
+                audio.remove();
+              }
               resolve();
             });
             
-            audio.addEventListener('error', reject);
+            audio.addEventListener('error', (error) => {
+              // 오류 발생 시 DOM에서 제거
+              if (audio.parentNode) {
+                audio.remove();
+              }
+              reject(error);
+            });
+            
             audio.play().catch(reject);
           });
           
