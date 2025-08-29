@@ -1,0 +1,27 @@
+{
+  "name": "3d-digital-human-ai-agent",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 30003",
+    "build": "next build",
+    "start": "next start -p 3003",
+    "lint": "next lint",
+    "setup-draco": "mkdir -p public/draco && cp node_modules/three/examples/jsm/libs/draco/* public/draco/",
+    "postinstall": "npm run setup-draco"
+  },
+  "dependencies": {
+    "@react-three/drei": "^10.0.7",
+    "@react-three/fiber": "^9.1.2",
+    "next": "^15.3.1",
+    "openai": "^4.97.0",
+    "postprocessing": "^6.37.7",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "three": "^0.160.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "tailwindcss": "^4"
+  }
+}
